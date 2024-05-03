@@ -18,5 +18,5 @@ class ApplicationConfig():
         :return: location of "secrets.yaml"
         :rtype: str
         '''
-        result                                              = self.config_dict['secrets_location']
+        result                                              = self.config_dict['secrets']['vault_location']
         return result

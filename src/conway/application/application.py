@@ -1,7 +1,7 @@
 import abc
 
 from conway.application.application_config                  import ApplicationConfig
-from conway.util.yaml_utils                                 import YAML_Utils
+from conway.util.toml_utils                                 import TOML_Utils
 
 class Application(abc.ABC):
 
@@ -26,8 +26,11 @@ class Application(abc.ABC):
         self.app_name                           = app_name
         self.logger                             = logger
 
-        PROPERTIES_FILE                         = app_name + "_config.yaml"
-        config_dict                             = YAML_Utils().load(config_path + "/" + PROPERTIES_FILE)
+        PROPERTIES_FILE                         = app_name + "_config.toml"
+
+
+
+        config_dict                             = TOML_Utils().load(config_path + "/" + PROPERTIES_FILE)
         self.config                             = ApplicationConfig(config_dict)
 
 
