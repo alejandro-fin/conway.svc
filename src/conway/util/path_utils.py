@@ -9,6 +9,34 @@ class PathUtils():
         '''
         '''
 
+    def n_directories_up(self, file_path, n):
+        '''
+        Given the full path to a file, this method returns the path to a directory that is `n` levels above the file.
+        For example, if `n==0` then this method returns the path to the directory that contains the file.
+
+        As another example, that illustrates the typical use case:
+        Suppose that caller is a file like 
+
+            /home/alex/consultant1@CCL/dev/conway_fork/conway.test/src/conway_test/framework/application/chassis_test_application.py
+        
+        and the caller would like to retrieve the folder 
+
+            /home/alex/consultant1@CCL/dev/conway_fork/conway.test/config
+
+        Then the caller could call the desired folder as `PathUtils().n_directories_up(__file__, 3) + "/config"`
+
+        :param str file_path: Absolute path to a file in the file system of the device where this code is running
+        :param int n: number of directories up the `file_path` to navigate to
+        :returns: the absolute path to the directory that is `n` levels above `file_path`
+        :rtype: str
+        '''
+        directory                                       = _os.path.dirname(file_path)
+
+        for idx in range(n):
+            directory                                   = _os.path.dirname(directory)
+
+        return directory
+
     def clean_path(self, path):
         '''
         Replaces characters in `path` that have a special meaning in Windows by other characters that will give the intended

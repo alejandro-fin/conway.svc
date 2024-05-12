@@ -246,9 +246,31 @@ class WarningsFilter():
         else:
             return False
         '''
+        source                                      = PathUtils().to_linux(str(a_warning.filename))
+        category                                    = a_warning.category
+        message                                     = a_warning.message
 
-        # Placeholder implementation - treat everything as non-benign
-        #
-        return False
+        BENIGN_WARNING_1                            = "datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version"
+        BENIGN_SOURCES_1                            = ["site-packages/xlsxwriter", "site-packages/openpyxl"]
+        SOURCE_IS_BENIGN_1                          = len([elt for elt in BENIGN_SOURCES_1 if elt in source]) > 0
+        
+        if category == DeprecationWarning and str(message).startswith(BENIGN_WARNING_1) and SOURCE_IS_BENIGN_1:
+            #   This started when we upgraded to the 3rd-party module xlsxwriter v 3.1.1.
+            #   Looks like it is just a matter for the authors of xlsxwriter to change their code to use the correct
+            #   datetime method. Until they do that, we treat this warning as benign and ignore it.
+            #   For reference, this is an extract of how this warning would appear in TVM test cases if it is not suppressed:
+            #
+            #        [WARNING 85] Category:  <class 'DeprecationWarning'>
+            #        [WARNING 85] Message:   datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+            #        [WARNING 85] ... from:  /home/alex/miniconda3/envs/tvm-env/lib/python3.12/site-packages/xlsxwriter/core.py
+            #        [WARNING 85] ... at line:       138
+            #               
+            #    
+            return True       
+        else:
+            # Treat the warning non-benign - so this will trigger an exception so that the developer figures out how
+            # to clean the code so that such warning is not issued
+            #
+            return False
 
 
