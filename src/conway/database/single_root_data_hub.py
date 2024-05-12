@@ -56,6 +56,29 @@ class AbsoluteDataHubHandle(DataHubHandle):
     
     def snapshot_handle(self, snapshot_root_folder:str):
         return AbsoluteDataHubHandle(snapshot_root_folder)
+    
+class GitHubDataHubHandle(DataHubHandle):
+
+    '''
+    Handle to a DataHub that corresponds to a related collection of repos in GitHub.
+
+    :profile conway_ops.onboarding.user_profile.UserProfile profile: object representing a loaded configuration for
+        a user's profile. The profile would determine which GitHub repos and credentials are part of this DataHub.
+    '''
+    def __init__(self, profile):
+        super().__init__()
+        self.profile                    = profile
+
+    def hub_root(self):
+        '''
+        '''
+        return self.profile.REMOTE_ROOT
+    
+    def snapshot_handle(self, snapshot_root_folder:str):
+        # Since the DataHub is in a remote cloud (GitHub), there is no point of "snapshotting" it into a 
+        # separate `snapshot_root_folder` -i.e., there is no "seed" that needs to be copied to an "actual" environment
+        return self
+
 
 
 class SingleRootDataHub(DataHub, abc.ABC):
