@@ -1,4 +1,4 @@
-
+import os                                                   as _os
 
 class ApplicationConfig():
 
@@ -19,4 +19,9 @@ class ApplicationConfig():
         :rtype: str
         '''
         result                                              = self.config_dict['secrets']['vault_location']
+
+        # Evaluate any environment variables in the path
+        #
+        result                                              = _os.path.expandvars(result) 
+
         return result
