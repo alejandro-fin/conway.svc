@@ -16,10 +16,12 @@ class Logger(abc.ABC):
 
         self.T0                                             = time.perf_counter()
 
-    def log(self, message, log_level, stack_level_increase, show_caller=True):
+    def log(self, message, log_level, stack_level_increase, show_caller=True, flush=True):
         '''
         :param bool show_caller: if True, causes all logs to include the filename and line number from where logging
             occurs.
+        :param bool flush: optional parameter that, if True, will cause logs to be flushed out immediately (instead
+            of being buffered). It is True by default.
         '''
         # Do bit-wise multiplication
         if self.activation_level & log_level > 0:
@@ -60,7 +62,7 @@ class Logger(abc.ABC):
             message2                                        = self.unclutter(message)
 
             prefix                                          ="\n[" + time_msg  + "]\t" + source + "\t"
-            print(prefix + message2)
+            print(prefix + message2, flush=flush)
 
     def unclutter(self, message):
         '''
