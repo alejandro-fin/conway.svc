@@ -126,7 +126,7 @@ class WarningsFilter():
         # Now examine the warnings we have collected
         #
         if len(self.warnings_l) > 0:
-            warning_dict                                        = {}
+            bad_warnings_dict                                   = {} # One entry per bad warning; value is a dict
             bad_warning_counter                                 = 0
             for idx in range(len(self.warnings_l)):
                 a_warning                                       = self.warnings_l[idx]
@@ -138,32 +138,36 @@ class WarningsFilter():
 
                 # If we get this far, then we have a non benign warning
                 #
+                a_warning_dict                                  = {} # Will hold information about 1 single problematic warning
 
                 PREFIX                                          = f"[WARNING {bad_warning_counter}]"
                 DASHES                                          = "."*40
 
-                warning_dict[f"{PREFIX} Category: "]            = str(a_warning.category)
-                warning_dict[f"{PREFIX} Message: "]             = str(a_warning.message)
-                warning_dict[f"{PREFIX} ... from:"]             = PathUtils().to_linux(str(a_warning.filename))
-                warning_dict[f"{PREFIX} ... at line:"]          = str(a_warning.lineno)
+                a_warning_dict[f"{PREFIX} Category: "]          = str(a_warning.category)
+                a_warning_dict[f"{PREFIX} Message: "]           = str(a_warning.message)
+                a_warning_dict[f"{PREFIX} ... from:"]           = PathUtils().to_linux(str(a_warning.filename))
+                a_warning_dict[f"{PREFIX} ... at line:"]        = str(a_warning.lineno)
 
                 trace_msg                                       = f"\n{DASHES} {PREFIX} Stack trace begins {DASHES}\n\n"
                 trace_msg                                       += f"{a_warning.stacktrace}"
                 trace_msg                                       += f"\n{DASHES} {PREFIX} Stack trace ended {DASHES}\n\n"
-                warning_dict[f"{PREFIX} Stack trace that triggered warning:"]  = trace_msg
+                a_warning_dict[f"{PREFIX} Stack trace that triggered warning:"]  = trace_msg
 
                 bad_warning_counter                             += 1
+                bad_warnings_dict[bad_warning_counter]          = a_warning_dict
 
-            nb_bad_warnings                                     = len(warning_dict.keys())
+            nb_bad_warnings                                     = len(bad_warnings_dict.keys())
 
             if nb_bad_warnings > 0:
-
-                aggregate_msg                                   = ""
-                for k in warning_dict.keys():
-                    val                                         = warning_dict[k]
-                    aggregate_msg                               += f"\n{k}\t{val}"
-                raise RuntimeError(f"Encountered {nb_bad_warnings} non-benign  warning(s)"
-                                   + f"\nDetails: {aggregate_msg}")
+                
+                for idx in bad_warnings_dict.keys():
+                    a_warning_dict                              = bad_warnings_dict[idx]
+                    aggregate_msg                               = ""
+                    for k in a_warning_dict.keys():
+                        val                                     = a_warning_dict[k]
+                        aggregate_msg                           += f"\n{k}\t{val}"
+                    raise RuntimeError(f"Encountered {nb_bad_warnings} non-benign  warning(s)"
+                                    + f"\nDetails: {aggregate_msg}")
 
 
     def check_if_user_error(self, a_warning):

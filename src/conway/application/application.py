@@ -1,4 +1,5 @@
 import abc
+from datetime                                               import datetime as _dt
 
 from conway.application.application_config                  import ApplicationConfig
 from conway.util.toml_utils                                 import TOML_Utils
@@ -33,6 +34,12 @@ class Application(abc.ABC):
         config_dict                             = TOML_Utils().load(config_path + "/" + PROPERTIES_FILE)
         self.config                             = ApplicationConfig(config_dict)
 
+        # This string attribute is intended to help instrospection functionality, by recording when an application instance
+        # was "born". For example, it can be used to timestamp the folders or logs associated to the lifetime of this
+        # instance, to differentiate them from those of a different instance of the same application that is running
+        # before or after this one.
+        #
+        self.start_time                         = _dt.now().strftime("%y%m%d.%H%M%S")
 
         Application._singleton_app              = self
 
