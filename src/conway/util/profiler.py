@@ -37,8 +37,7 @@ class Profiler():
         # between the stack frame with the business logic and the stack frame in which the logger will run. And for
         # the logger to correctly display the line of business logic code that matters, the count on stack frame
         # distances must be correct.
-        Application.app().log(str(self.behavior_being_profiled) + " completed in " + latency, 
-                              log_level                 = Logger.LEVEL_INFO,
+        Logger.log_info(f"{self.behavior_being_profiled} completed in " + latency, 
                               stack_level_increase      = 1)
 
         ''' TODO - figure out if we want to handle some types of exceptions
