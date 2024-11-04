@@ -48,63 +48,86 @@ class Logger(abc.ABC):
         '''
         # Do bit-wise multiplication
         if self.activation_level & log_level > 0:
-            T1                                              = time.perf_counter()
-            time_msg                                        = "{0:.3f} sec".format(T1-self.T0)
-
-            thread_msg                                      = threading.current_thread().name
-
-            try:
-                task_msg                                    = asyncio.current_task().get_name()
-            except RuntimeError as ex:
-                if str(ex) == "no running event loop":
-                    task_msg                                    = "Not using an event loop"
-                else:
-                    raise ex
 
             # We want to display the module and line number for the business logic code. Normally we get here because
             # the business logic code has a line like
             #
             #       Logger.log_info(---), which in turn calls something like Application.app().log(---)
             #
-            # which means we are 4 stack frames away from the business logic code, as these other layers are in between:
+            # which means we are 3 stack frames away from the business logic code, as these other layers are in between:
             #
             #   * The Application class
             #   * The concrete class derived from Application
             #   * The concrete Logger class derived from this Logger
-            #   * And this Logger
             #
             # On top of these, the caller of the above line might have told us to further increase the stack level, 
             # if the caller felt that it was layers upstream from it whose line numbers should be displayed.
             #        
-            STACK_LEVEL                                     = 4 + stack_level_increase
-            def _get_caller_module():
-                frame                                       = inspect.stack()[STACK_LEVEL]
-                lineno                                      = frame.lineno
-                module                                      = inspect.getmodule(frame[0])
-                if not module is None:
-                    module_name                             = module.__name__
-                    source                                  = module_name.split(".")[-1] + ":" + str(lineno)
-                else:
-                    source                                  = "<source location undetermined>"
-                return source
-            
-            source                                          = ""
-            if show_caller:
-                source                                      = _get_caller_module()
-
-            message2                                        = self.unclutter(message)
-
-            TL                                              = TelemetryLabels
+            STACK_LEVEL                                     = 3 + stack_level_increase
 
             labels                                          = {} if xlabels is None else xlabels.copy()
 
-            labels                                          |= {TL.TIMESTAMP:        time_msg,
-                                                               TL.THREAD:           thread_msg,
-                                                               TL.TASK:             task_msg,
-                                                               TL.SOURCE:           source}
+            labels                                          |= self.snapshot_runtime_context(STACK_LEVEL)
 
-            
+            message2                                        = self.unclutter(message)            
             self._tee(labels=labels, message = f"{message2}", filename=self.log_file)
+
+    def snapshot_runtime_context(self, stack_level):
+        '''
+        This function inspects the state of the runtime stack, and extracts and returns useful information around:
+
+        * The elapsed time, in seconds, it took to reach this point in the execution, measured from the time when this
+          `Logger` object was constructed.
+        * The thread identifier this call is running in
+        * The task identifier, in the asyncio event management sense of the task
+        * The line of code that triggered this execution moment, counting a number of entries up the stack based on 
+          the `stack_level` parameter. I.e., if `stack_level==0` then this method will extract the caller's line number,
+          but if `stack_level==1` then it will be the caller's caller's line number, and so on.
+
+        :param stack_level: number of levels up the caller's stack to traverse in order to identify the line of code
+                            that triggered this call. 
+        :type stack_level: int
+
+        :returns: The values of TelemetryLabels properties as of the time this function is called
+        :rtype: dict
+        '''
+        T1                                                  = time.perf_counter()
+        time_msg                                            = "{0:.3f} sec".format(T1-self.T0)
+
+        thread_msg                                          = threading.current_thread().name
+
+        try:
+            task_msg                                        = asyncio.current_task().get_name()
+        except RuntimeError as ex:
+            if str(ex) == "no running event loop":
+                task_msg                                    = "Not using an event loop"
+            else:
+                raise ex
+      
+        def _get_caller_module():
+            # Add +2 to stack_level_increase to compensate for the distorting effect of having an extra stack entry 
+            # due to this two functions, `snapshot_runtime_context` and `get_caller_module`
+            frame                                           = inspect.stack()[stack_level + 2]
+            lineno                                          = frame.lineno
+            module                                          = inspect.getmodule(frame[0])
+            if not module is None:
+                module_name                                 = module.__name__
+                source                                      = module_name.split(".")[-1] + ":" + str(lineno)
+            else:
+                source                                      = "<source location undetermined>"
+            return source
+        
+        source                                              = _get_caller_module()
+
+        TL                                                  = TelemetryLabels
+
+        runtime_context                                     = { TL.TIMESTAMP:        time_msg,
+                                                                TL.THREAD:           thread_msg,
+                                                                TL.TASK:             task_msg,
+                                                                TL.SOURCE:           source}
+        
+        return runtime_context
+            
 
     def unclutter(self, message):
         '''
@@ -150,8 +173,13 @@ class Logger(abc.ABC):
             which is the default value.
         """
         TL                                              = TelemetryLabels
-        prefix                                          = f"\n[{labels[TL.TIMESTAMP]} - {labels[TL.TASK]} - {labels[TL.TASK] }]\t {labels[TL.SOURCE]} \t"
-        print(f"{prefix}{message}")  # Print to stdout
+        prefix                                          = f"\n[{labels[TL.TIMESTAMP]} - {labels[TL.THREAD]} - {labels[TL.TASK] } - {labels[TL.SOURCE]}]"
+        if TelemetryLabels.SCHEDULING_CONTEXT in labels:
+            ctx                                         = labels[TelemetryLabels.SCHEDULING_CONTEXT]
+            formatted_ctx                               = f"[{ctx[TL.TIMESTAMP]} - {ctx[TL.THREAD]} - {ctx[TL.TASK] } - {ctx[TL.SOURCE]}]"
+            prefix                                      += f"<<{formatted_ctx}" 
+
+        print(f"{prefix}\t{message}")  # Print to stdout
 
         if not filename is None:
             # Create the directory structure if it doesn't exist

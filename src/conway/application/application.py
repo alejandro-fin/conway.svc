@@ -14,7 +14,7 @@ class Application(abc.ABC):
     :param str app_name: Name for the application. It determines the name of the configuration file. For example,
         if the application is called "Foo", the properties file would be "Foo_config.yaml"
 
-    :param str config_path: location in the filesystem of a Yaml file containing the properties
+    :param str config_path: location in the filesystem of a TOML file containing the properties
         to be used in this installation of a Conway application.
 
     :param Logger logger: object providing logging services that business logic can use to log messages.

@@ -37,6 +37,15 @@ class TelemetryLabels:
     TASK                                        = "task"
 
     '''
+    Instance of conway.async_utils.scheduling_context.SchedulingContext, used to reflect the moment when
+    an asynchronous request was made, as opposed to the moment when it runs.
+
+    '''
+    SCHEDULING_CONTEXT                          = "scheduling_context"
+
+
+
+    '''
     String representing the Python module and line number from which the observability signal was emitted.
 
     Example: "repo_manipulation_test_case:121"
