@@ -12,12 +12,23 @@ class TelemetryLabels:
         pass
 
     '''
+    Conway Log lines are initially produced as dictionaries. This string represents a field in such dictionary,
+    corresponding to the root of the sub-dictionary that contains the telemetry labels of a log line.
+    '''
+    LABELS                                      = "labels"
+    '''
     String representing the time in seconds since this Conway application started measuring time, up to
     when the observability signal was emitted. It is formatted to millisecond precision.
 
     Example: "0.332 sec"
     '''
     TIMESTAMP                                   = "timestamp"
+
+    '''
+    List of timestamps.
+    Example: ["0.332 sec". "2.321 sec"]
+    '''
+    TIMESTAMP_LIST                              = "timestamp_list"
 
     '''
     String representing the name of the thread from which the observability signal was emitted
@@ -37,6 +48,14 @@ class TelemetryLabels:
     TASK                                        = "task"
 
     '''
+    List of task identifiers representing the ancestors of a task, sorted from parent to grand-parent to great-grandparent,
+    and so on.
+
+    Example: ["Task-6", "Task-3"]
+    '''
+    TASK_ANCESTORS                              = "task_ancestors"
+
+    '''
     Instance of conway.async_utils.scheduling_context.SchedulingContext, used to reflect the moment when
     an asynchronous request was made, as opposed to the moment when it runs.
 
@@ -51,6 +70,11 @@ class TelemetryLabels:
     Example: "repo_manipulation_test_case:121"
     '''
     SOURCE                                      = "source"
+
+    '''
+    String for the key of the message content in the JSON object for log lines created by default by the Conway Logger.
+    '''
+    MESSAGE                                     = "message"
 
     '''
     A dict object representing the basic properties of a distributed trace's span. Time is show in seconds to a
