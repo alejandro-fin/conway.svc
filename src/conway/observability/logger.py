@@ -7,6 +7,7 @@ import threading
 import time
 
 from conway.application.application                             import Application
+from conway.async_utils.schedule_based_log_sorter               import ScheduleBasedLogSorter
 from conway.observability.telemetry_labels                      import TelemetryLabels
 
 class Logger(abc.ABC):
@@ -15,7 +16,7 @@ class Logger(abc.ABC):
     Parent class to support logging for Conway applications. Normally each concrete Conway application class
     would use a logger derived from this class, specific to that Conway application.
 
-    :param int activation_level: represents a set of binary values for which levels of logging to
+    :param activation_level: represents a set of binary values for which levels of logging to
         activate, where bits are machted to levels by reading the bits from right to left (i.e., the least
         significant binary digits correspond to the lowest levels of logging). 
         Examples:
@@ -25,17 +26,39 @@ class Logger(abc.ABC):
            2nd and 4th levels of logging are activated (since we read bits from right to left).
 
         If `activation_level` is 0 then no logging occurs.
+    :type activation_level: int
 
-    :param str log_file: optional parameter which is None by default. If not None, it designates the path in the local
+    :param log_file: optional parameter which is None by default. If not None, it designates the path in the local
         machine for a file where logs should be written to, in addition to getting them displayed to standard output.
+    :type log_file: str
+
+    :param schedule_based_logging: optional parameter used to enable logging based on when a line of code was
+        scheduled, as opposed to when it is executed. For synchronous processing there is no difference between the
+        two, but when using Python's asyncio coroutines the order in which lines is logged differs depending on whether
+        log lines are sorted based on scheduling vs execution time. Refer to 
+        conway.async_utils.schedule_based_log_sorter.ScheduleBasedLogSorter for a deeper discussion about this.
+        One consequence of enabling schedule_based_logging is that the caller needs to periodically flush the in-memory
+        buffer of the logs in order to actually get something logged. This is because schedule_based logging requires
+        ScheduleBasedLogSorter to sort the buffer, and this can only happens with each flush since only then is it
+        clear that the buffer is complete, i.e., it has all the lines that must be sorted.
+        By default this `schedule_based_logging` parameter is False.
+    :type schedule_based_logging: bool
 
     '''
-    def __init__(self, activation_level, log_file=None):
+    def __init__(self, activation_level, log_file=None, schedule_based_logging=False):
 
         self.activation_level                               = activation_level
 
         self.T0                                             = time.perf_counter()
         self.log_file                                       = log_file
+        self.schedule_based_logging                         = schedule_based_logging
+
+        # This internal buffer is only relevant when schedule_based_logging is True. Normally it is up to 
+        # each concrete class to set it to True if that is the correct behavior for the use case in question.
+        # This buffer will store each raw log line as an element in the list (each line represented as a JSON object), 
+        # so that the entire list can be sorted later.
+        #
+        self.buffer                                         = []
 
     def log(self, message, log_level, stack_level_increase, xlabels=None, show_caller=True, flush=True):
         '''
@@ -71,6 +94,23 @@ class Logger(abc.ABC):
 
             message2                                        = self.unclutter(message)            
             self._tee(labels=labels, message = f"{message2}", filename=self.log_file)
+
+    def flush(self):
+        '''
+        This method is only pertinent if self.schedule_based_logging is True. In that case, it will
+        sort the buffer based on scheduling considerations, and then print it to standard output.
+        '''
+        if not self.schedule_based_logging:
+            raise ValueError("You can't flush the buffer of a log that is configured with `schedule_based_logging=False`")
+        
+        sorter                                              = ScheduleBasedLogSorter(self.buffer)
+        sorted_lines                                        = sorter.sort()
+        print("\n") # Start on a new line
+        for line in sorted_lines:
+            print(line)
+
+        # Clear buffer
+        self.buffer                                         = []
 
     def snapshot_runtime_context(self, stack_level):
         '''
@@ -164,7 +204,17 @@ class Logger(abc.ABC):
         NB: This implementation was contributed to by Microsoft Edge Copilot, with minor adjustments by human.
         It gives the same kind of behavior as the linux `tee` command.
 
-        Print the message to stdout and append it to the specified file.
+        Print the message to stdout and append it to the specified file, but with a caveout:
+
+        * The log line that is appended to the specified file is formatted as a JSON object, with Grafana-friendly
+          fields like "labels". This is in order to better support integration to the Grafana stack, in the
+          anticipation that some process will be scraping this file.
+
+        * In contrast, the message that is printed to stdout will be formatted as a human-readable message with
+          an informative prefix.
+
+        Another twist is that when self.schedule_based_logging is on, we write to the given file but buffer
+        the printing to standard ouput, until self.flush() is called.
 
         :param dict labels: labels to include in this log. They will be formatted for readability for standard output,
             but turned into a JSON object when saving to a file.
@@ -179,22 +229,24 @@ class Logger(abc.ABC):
             formatted_ctx                               = f"[{ctx[TL.TIMESTAMP]} - {ctx[TL.THREAD]} - {ctx[TL.TASK] } - {ctx[TL.SOURCE]}]"
             prefix                                      += f"<<{formatted_ctx}" 
 
-        print(f"{prefix}\t{message}")  # Print to stdout
+        log_entry                                   = {}
+        log_entry["message"]                        = message
+        log_entry["labels"]                         = labels
+
+        if self.schedule_based_logging:
+            self.buffer.append(log_entry)
+        else:
+            print(f"{prefix}\t{message}")  # Print to stdout
 
         if not filename is None:
             # Create the directory structure if it doesn't exist
             _os.makedirs(_os.path.dirname(filename), exist_ok=True)
-
-            log_entry                                   = {}
-            log_entry["message"]                        = message
-            log_entry["labels"]                         = labels
 
             # We will be writing each log entry as  JSON object, each of them in a dedicated line of the log
             # file.
             # For that reason, we can't just write the dict `log_entry` as-is: it must be converted to a JSON object
             # so that field names and values use correct JSON syntax (e.g., double quotes instead of single quotes)
             #
-            json_log_entry                              = json.dumps(log_entry)
-            
+            json_log_entry                          = json.dumps(log_entry)
             with open(filename, 'a') as file:
                 file.write(f"{json_log_entry}" + '\n')  # Append to the file

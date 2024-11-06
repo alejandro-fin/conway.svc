@@ -59,7 +59,7 @@ class ScheduleBasedLogSorter():
     :type input_lines: list[dict]
 
     '''
-    def __init__(self, input_lines):
+    def __init__(self, input_lines: list[dict]):
         self.input_lines                                    = input_lines
         self.metadata_dict                                  = self._extract_task_metadata()
         
