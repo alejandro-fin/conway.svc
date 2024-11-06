@@ -14,7 +14,7 @@ class Application(abc.ABC):
     :param str app_name: Name for the application. It determines the name of the configuration file. For example,
         if the application is called "Foo", the properties file would be "Foo_config.yaml"
 
-    :param str config_path: location in the filesystem of a Yaml file containing the properties
+    :param str config_path: location in the filesystem of a TOML file containing the properties
         to be used in this installation of a Conway application.
 
     :param Logger logger: object providing logging services that business logic can use to log messages.
@@ -43,8 +43,8 @@ class Application(abc.ABC):
 
         Application._singleton_app              = self
 
-    def log(self, message, log_level=1, stack_level_increase=0, show_caller=True):
-        self.logger.log(message, log_level, stack_level_increase, show_caller=show_caller)
+    def log(self, message, log_level=1, stack_level_increase=0, xlabels=None, show_caller=True):
+        self.logger.log(message, log_level, stack_level_increase, xlabels=xlabels, show_caller=show_caller)
 
     _singleton_app                              = None
 
