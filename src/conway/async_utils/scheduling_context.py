@@ -31,8 +31,14 @@ class SchedulingContext():
     the algorithmic order. In order to do that it relies on log lines to record information about the scheduling context,
     i.e., the call that logs must log as well the scheduling context. Such code that creates logs usually makes use of
     an instance of this class to snapshot the scheduling context information so that it can be included in the log.
+    
+    :param parent_context: the SchedulingContext of a "parent". Typical use case would be that
+        the "parent" is the SchedulingContext of a caller that directly or indirectly led to the call of the code
+        for which `self` is a SchedulingContext. It is attached to `self` if not None, or ignored if None.
+        By default it is None. 
+    :type parent_context: conway.async_utils.scheduling_context.SchedlingContext
     '''
-    def __init__(self):
+    def __init__(self, parent_context=None):
 
         #
         # We use stack_level=1 to accomodate for having to traverse the stack layers from the caller of
@@ -40,6 +46,9 @@ class SchedulingContext():
         #
         #
         self.ctx_dict                                   = Application.app().logger.snapshot_runtime_context(stack_level=1)
+        
+        if not parent_context is None:
+            self.ctx_dict[TelemetryLabels.SCHEDULING_CONTEXT]   = parent_context.ctx_dict
  
 
     def as_xlabel(self):
