@@ -61,6 +61,11 @@ class ScheduleBasedLogSorter():
     '''
     def __init__(self, input_lines: list[dict]):
         self.input_lines                                    = input_lines
+        
+        # See the documentation of `self._clean_input_lines` on why it is necessary to modify ("clean")
+        # input lines to avoid serious bugs in certain situations
+        self.cleaned_lines                                  = self._clean_input_lines()
+        
         self.metadata_dict                                  = self._extract_task_metadata()
         
 
@@ -68,7 +73,8 @@ class ScheduleBasedLogSorter():
         '''
         :returns: A list of sorted and formatted log lines, indented when needed to show the parent code that scheduled
             the coroutine that led to such indented log line (i.e., "parent code" information as it appears in
-            the "scheduling_context" label of the input log lines).
+            the "scheduling_context" label of the "cleaned" input log lines - as for what "cleaned" refers to,
+            please see the documentation of `self._clean_input_lines`).
         
             Example: in the case of the input log cited earlier in the documentation
             of this class, the sorted output would look something like this:
@@ -79,12 +85,18 @@ class ScheduleBasedLogSorter():
                     [4.186 sec Task-38 - MainThread@repo_manipulation_test_case:195]	Created 'integration' branch in 'scenario_8002.scenarios'
                 [2.288 sec Task-36 - MainThread@repo_manipulation_test_case:100]
                     [4.242 sec Task-40 - MainThread@repo_manipulation_test_case:195]	Created 'integration' branch in 'scenario_8002.docs'
-        
+
+            
         :retype: list[str]
         '''
         TL                                                  = TelemetryLabels
-        sorted_data_l                                       = sorted(self.input_lines, 
+        try:
+            sorted_data_l                                   = sorted(self.cleaned_lines, 
                                                                     key = lambda line: self._log_line_key(line))
+        except Exception as ex:
+            raise ValueError(f"Unable to sort the list of type: {type(self.cleaned_lines)}"
+                             + f"\n\nREASON SORT FAILED: {ex}"
+                             + f"\n\nThe input lines are: {self.cleaned_lines}")
         
         result_l                                            = []
 
@@ -100,8 +112,174 @@ class ScheduleBasedLogSorter():
 
             msg                                             = datum[TL.MESSAGE]
             prefix                                          = self._format_labels(labels)
-            result_l.append(f"{prefix}\t{msg}")
+            # GOTCHA
+            #   Application code may introduce newline characters in `msg`, as a way to format displays
+            #   in multiple lines.
+            #   Here we are appending a prefix to `msg`, but to preserve the spirit of the application code,
+            #   we should really do it for each portion of `msg` that is separated by a newline character.
+            #   Otherwise, the first line in `msg` will have a prefix but the other ones will be unindented
+            #   and won't read as nice
+            #
+            msg_lines_l                                     = msg.split("\n")
+            # Apply the prefix to the first line in `msg`, and for the others indent by the same amount of text
+            result_l.append(f"{prefix}\t{msg_lines_l[0]}")
+            # The indentation will be 1 space per character, except for tabs that will count as tabs
+            SPACE                                           = " "
+            indentation                                     = ""
+            for c in f"{prefix}\t":
+                if c == "\t":
+                    indentation                             += c
+                else:
+                    indentation                             +=SPACE
+            for idx in range(1, len(msg_lines_l)):
+                result_l.append(f"{indentation}{msg_lines_l[idx]}")
 
+        return result_l
+    
+    def _clean_input_lines(self):
+        '''
+        This function is required because the sorting algorithm assumes that when a log line includes a "parent"
+        for a coroutine (i.e., the "scheduling_context" label of the log line, if any) is for a different 
+        async task than the task of the line. When this assumption is violated, the keys for the sorting algorithm
+        will be dimensionally incompatible and that will generate error messages such as this:
+        
+        .. code::
+
+            TypeError: '<' not supported between instances of 'tuple' and 'float'        
+        
+        An example will help explain why this happens. Consider a situation where a co-routine invokes another 
+        co-routine directly. This can give rise to log lines like these 2 lines, where the second line
+        is for a co-routine performed under Task-24, and its parent (as per the `scheduling-context`) is another
+        co-routine also for Task 24:
+        
+        .. code::
+
+            {'message': '\n----------- conway.scenarios (local) -----------',
+            'labels': {'timestamp': '14.185 sec',
+            'thread': 'MainThread',
+            'task': 'Task-12',
+            'source': 'branch_lifecycle_manager:491'}}      
+            
+        .. code::
+        
+            {'message': "local = '/home/alex/consultant1@FIN/dev/conway_fork/conway.test'",
+            'labels': {'scheduling_context': {'timestamp': '215.917 sec',
+            'thread': 'MainThread',
+            'task': 'Task-24',                                                  <<--------------
+            'source': 'branch_lifecycle_manager:496'},
+            'timestamp': '215.922 sec',
+            'thread': 'MainThread',
+            'task': 'Task-24',                                                  <<--------------
+            'source': 'filesystem_repo_inspector:370'}}
+  
+              
+        The reason this is a problem is that the sorting algorithm in this class will create 2 dimensionally
+        inconsistent sorting keys, one for each line:
+        
+        * (14.185, 14.185)
+        * ((215.911, 215.917), (215.911, 215.922))
+        
+        These 2 keys are dimensionally incompatible and can't be compared during a sort.
+        
+        To avoid generating incompatible keys like that, this function modifies the input lines by removing 
+        from them any parent that is for the same task as the child, while still preserving any other ancestors.
+        I.e., it has logic to "skip a level" in the hierarchy of child-parent relationships defined by the
+        `scheduling_context` label, if child and parent are for the same task.
+        
+        In the above example, the second line would be "cleaned up" to be:
+        
+        .. code::
+        
+            {'message': "local = '/home/alex/consultant1@FIN/dev/conway_fork/conway.test'",
+            'labels': {
+            'timestamp': '215.922 sec',
+            'thread': 'MainThread',
+            'task': 'Task-24',
+            'source': 'filesystem_repo_inspector:370'}}
+        
+        :returns: a "cleaned" verson of `self.input_lines`, as explained above
+        
+        :rtype: list[dict]
+        '''
+        TL                                                  = TelemetryLabels
+
+        result_l                                            = []
+            
+        def _first_ancestor_with_a_different_task(some_labels):
+            '''
+            :returns: a copy of the first ancestor of `some_labels` that is for a different task. If none exists,
+                returns None
+                
+            :rtype: dict
+            '''
+            task                                            = some_labels[TL.TASK]
+            
+            next_labels                                     = some_labels.copy()
+            while TL.SCHEDULING_CONTEXT in next_labels.keys():
+                next_ancestor                               = next_labels[TL.SCHEDULING_CONTEXT].copy()
+                
+                next_task                                   = next_ancestor[TL.TASK]
+
+                if next_task != task:
+                    # Found it!
+                    return next_ancestor
+                else:
+                    next_labels                             = next_ancestor
+                    continue
+                
+            # If we get this far it means that we have gone through all the ancestors and didn't find any
+            # that is for a different task, so return None to indicate that no such ancestor exists
+            #
+            return None
+            
+        def _clean_labels(raw_labels):
+            '''
+            :returns: a modified copy of `raw_labels` which has been cleaned in the sense that the
+                child-parent chain does not have the same task appearing more than once.
+                
+            :rtype: dict
+            '''
+            if not TL.SCHEDULING_CONTEXT in raw_labels.keys():
+                # Hit bottom in the recursion
+                return raw_labels.copy()
+            else:
+                # Build the clean labels by first taking the non-ancestors portion of raw_labels; later
+                # we'll add the ancestor that makes most sense
+                #
+                cleaned_labels                              = raw_labels.copy()
+                cleaned_labels.pop(TL.SCHEDULING_CONTEXT)
+                
+                # We will now set the `cleaned_labels`` parent by something that is clean. This means finding
+                # an ancestor of `raw_labels` meeting two conditions:
+                #   1. the candidate ancestor is for a different task than that of the cleaned_labels
+                #   2. the candidate ancestor is itself clean
+                #
+                # We first ensure the 1st condition, then the 2nd condition.
+                #
+                first_candidate_ancestor                    = _first_ancestor_with_a_different_task(raw_labels)
+                
+                if first_candidate_ancestor is None:
+                    # There is no valid ancestor to add to the `cleaned_labels`
+                    return cleaned_labels
+                
+                else:
+                    # Now the 2nd step: clean up the `candidate_ancestor`. For that we make a recursive call.
+                    #
+                    second_candidate_ancestor               = _clean_labels(first_candidate_ancestor)
+                    
+                    cleaned_labels[TL.SCHEDULING_CONTEXT]   = second_candidate_ancestor
+                
+                    return cleaned_labels
+                
+        for raw_line in self.input_lines:
+            raw_labels                                      = raw_line[TL.LABELS]   
+            cleaned_labels                                  = _clean_labels(raw_labels)
+            
+            cleaned_line                                    = raw_line.copy()
+            cleaned_line[TL.LABELS]                         = cleaned_labels
+            
+            result_l.append(cleaned_line)                                       
+        
         return result_l
 
     def _timestamp_key(ts):
@@ -124,7 +302,7 @@ class ScheduleBasedLogSorter():
     
     def _extract_task_metadata(self):
         '''
-        Helper method that pre-processes `self.input_lines` to create and return a dictionary that can be used as
+        Helper method that pre-processes `self.cleaned_lines` to create and return a dictionary that can be used as
         an auxiliary metadata structure.
 
         The returned dictionary will have the task ids as key. For example, "Task-36" could be a key.
@@ -173,13 +351,15 @@ class ScheduleBasedLogSorter():
                 parent_labels                               = labels[TL.SCHEDULING_CONTEXT]
                 _extract_recursively(parent_labels)
                 parent_task                                 = parent_labels[TL.TASK]
+
                 parent_ancestors                            = result_dict[parent_task][TL.TASK_ANCESTORS]
                 ancestors_so_far                            = result_dict[task][TL.TASK_ANCESTORS]
                 ancestors                                   = list(set({parent_task}).union(set(parent_ancestors)).union(set(ancestors_so_far)))
+                    
                 result_dict[task][TL.TASK_ANCESTORS]        = ancestors
     
 
-        for datum in self.input_lines:
+        for datum in self.cleaned_lines:
             labels = datum[TL.LABELS]
             _extract_recursively(labels)
 
@@ -229,7 +409,7 @@ class ScheduleBasedLogSorter():
 
         Both of these examples illustrate how our sorting key semantics ensure that outcome of sorting log
         lines in the order of algorithmic declaration, so that we list all the "children" of a "parent" together
-        after the parent, making the altorithmic dataflow easy to understand because the steps of such dataflow
+        after the parent, making the algorithmic dataflow easy to understand because the steps of such dataflow
         would appear grouped together under the "parent" that gives rise to such dataflow.
 
         For this scheme to work, the dimensionality of all keys across all log lines must be the same.
@@ -312,17 +492,40 @@ class ScheduleBasedLogSorter():
             return (ME._timestamp_key(min_timestamp), ME._timestamp_key(timestamp))
 
         def _hierarchical_key(labels):
+            
             if not TL.SCHEDULING_CONTEXT in labels.keys():
                 return _labels_key(labels)
             else:
+                # Find the first ancestor for a different task
                 parent_labels = labels[TL.SCHEDULING_CONTEXT]
+
                 parent_key                                  = _hierarchical_key(parent_labels)
                 child_key                                   = _labels_key(labels)
                 return (parent_key, child_key)
-
-        padding_needed                                      = max_nb_ancestors - len(self.metadata_dict[labels[TL.TASK]][TL.TASK_ANCESTORS])
+            
+        def _dimension_of_key(a_key):
+            '''
+            Here are some examples of what we mean by dimension of a sorting key:
+            
+            * (2.3, 4.2) is a key of dimension 1
+            
+            * ((1.4, 5.2), (2.3, 4.2)) is a key of dimension 2
+            
+            * (((1.4, 5.2), (2.3, 4.2)), (5,6)) is a key of dimension 3
+            
+            :returns: the dimension of a key
+            :rtype: int
+            '''
+            next_val                                        = a_key
+            dimension                                       = 0
+            while type(next_val) == tuple:
+                dimension                                   += 1
+                next_val                                    = next_val[0]
+            return dimension
 
         unpadded_key                                        = _hierarchical_key(labels)
+        padding_needed                                      = 1 + max_nb_ancestors - _dimension_of_key(unpadded_key)
+        
         key                                                 = unpadded_key
         for idx in range(padding_needed):
             key                                             = (key, (0,0))

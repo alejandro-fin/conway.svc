@@ -187,12 +187,15 @@ class Logger(abc.ABC):
         '''
         Logs the ``msg`` at the INFO log level.
 
-        :param str msg: Information to be logged
-        :param int stack_level_increase: optional parameter, in case the caller doesn't want to appear as the
+        :param msg: Information to be logged
+        :type msg: str
+        :param stack_level_increase: optional parameter, in case the caller doesn't want to appear as the
             originator if this log request. For example, setting `stack_level_increase=1` would cause the caller's caller
             to be displayed as the originator of this log line.
-        :param dict xlabels: optional dictionary of additional labels to attach to this log (over and beyond any generic labels
+        :type stack_level_increase: int
+        :param xlabels: optional dictionary of additional labels to attach to this log (over and beyond any generic labels
             that this Logger class will add on its own).
+        :type xlabels: dict
         '''
         Application.app().log(msg,  Logger.LEVEL_INFO, 
                                     stack_level_increase    = stack_level_increase, 
