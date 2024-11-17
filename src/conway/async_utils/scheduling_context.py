@@ -36,7 +36,7 @@ class SchedulingContext():
         the "parent" is the SchedulingContext of a caller that directly or indirectly led to the call of the code
         for which `self` is a SchedulingContext. It is attached to `self` if not None, or ignored if None.
         By default it is None. 
-    :type parent_context: conway.async_utils.scheduling_context.SchedlingContext
+    :type parent_context: conway.async_utils.scheduling_context.SchedulingContext
     '''
     def __init__(self, parent_context=None):
 
